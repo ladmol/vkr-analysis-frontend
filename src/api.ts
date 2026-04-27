@@ -4,6 +4,7 @@ import type {
   AnalyticsQueryResponse,
   CurrentUser,
   LoginResponse,
+  RatingRow,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
@@ -61,4 +62,66 @@ export function runAnalyticsQuery(
     },
     token,
   );
+}
+
+export function exportAnalyticsQuery(
+  token: string,
+  payload: AnalyticsQueryRequest,
+): Promise<Blob> {
+  return requestBlob(
+    "/analytics/query/export/xlsx",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export function getRating(token: string): Promise<{ rows: RatingRow[] }> {
+  return request<{ rows: RatingRow[] }>(
+    "/analytics/rating",
+    {
+      method: "POST",
+      body: JSON.stringify({ limit: 100 }),
+    },
+    token,
+  );
+}
+
+export function exportRating(token: string): Promise<Blob> {
+  return requestBlob(
+    "/analytics/rating/export/xlsx",
+    {
+      method: "POST",
+      body: JSON.stringify({ limit: 100 }),
+    },
+    token,
+  );
+}
+
+async function requestBlob(
+  path: string,
+  options: RequestInit = {},
+  token?: string,
+): Promise<Blob> {
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null);
+    const message =
+      typeof errorPayload?.detail === "string"
+        ? errorPayload.detail
+        : `Request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return response.blob();
 }
