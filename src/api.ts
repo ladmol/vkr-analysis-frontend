@@ -3,6 +3,8 @@ import type {
   AnalyticsQueryRequest,
   AnalyticsQueryResponse,
   CurrentUser,
+  DetailQueryRequest,
+  FieldValuesResponse,
   LoginResponse,
   RatingRow,
 } from "./types";
@@ -50,12 +52,37 @@ export function getAnalyticsFields(token: string): Promise<AnalyticsField[]> {
   return request<AnalyticsField[]>("/analytics/fields", {}, token);
 }
 
+export function getFieldValues(
+  token: string,
+  fieldId: string,
+): Promise<FieldValuesResponse> {
+  return request<FieldValuesResponse>(
+    `/analytics/fields/${encodeURIComponent(fieldId)}/values`,
+    {},
+    token,
+  );
+}
+
 export function runAnalyticsQuery(
   token: string,
   payload: AnalyticsQueryRequest,
 ): Promise<AnalyticsQueryResponse> {
   return request<AnalyticsQueryResponse>(
-    "/analytics/query",
+    "/analytics/summary",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export function runDetailQuery(
+  token: string,
+  payload: DetailQueryRequest,
+): Promise<AnalyticsQueryResponse> {
+  return request<AnalyticsQueryResponse>(
+    "/analytics/detail",
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -69,7 +96,21 @@ export function exportAnalyticsQuery(
   payload: AnalyticsQueryRequest,
 ): Promise<Blob> {
   return requestBlob(
-    "/analytics/query/export/xlsx",
+    "/analytics/summary/export/xlsx",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export function exportDetailQuery(
+  token: string,
+  payload: DetailQueryRequest,
+): Promise<Blob> {
+  return requestBlob(
+    "/analytics/detail/export/xlsx",
     {
       method: "POST",
       body: JSON.stringify(payload),

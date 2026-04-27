@@ -8,6 +8,7 @@ export interface AnalyticsField {
   id: string;
   label: string;
   type: FieldType;
+  displayable: boolean;
   groupable: boolean;
   filterable: boolean;
   aggregations: Aggregation[];
@@ -24,6 +25,13 @@ export interface FilterRequest {
   value: unknown;
 }
 
+export interface FilterDraft {
+  id: string;
+  field: string;
+  operator: FilterOperator;
+  value: string;
+}
+
 export interface SortRequest {
   field: string;
   direction: SortDirection;
@@ -32,6 +40,13 @@ export interface SortRequest {
 export interface AnalyticsQueryRequest {
   metrics: MetricRequest[];
   dimensions: string[];
+  filters: FilterRequest[];
+  sort: SortRequest[];
+  limit: number;
+}
+
+export interface DetailQueryRequest {
+  columns: string[];
   filters: FilterRequest[];
   sort: SortRequest[];
   limit: number;
@@ -67,6 +82,14 @@ export interface ReportPreset {
   query: AnalyticsQueryRequest;
 }
 
+export interface DetailPreset {
+  id: string;
+  title: string;
+  description: string;
+  columns: string[];
+  query: DetailQueryRequest;
+}
+
 export interface RatingRow {
   full_name?: string;
   study_group: string | null;
@@ -77,4 +100,9 @@ export interface RatingRow {
   grade100: number | null;
   total_points: number | null;
   final_result: number | null;
+}
+
+export interface FieldValuesResponse {
+  field: string;
+  values: Array<string | number>;
 }

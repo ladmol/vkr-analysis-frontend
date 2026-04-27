@@ -2,12 +2,15 @@ import { FormEvent, useMemo, useState } from "react";
 
 import {
   exportAnalyticsQuery,
+  exportDetailQuery,
   exportRating,
   getAnalyticsFields,
+  getFieldValues,
   getMe,
   getRating,
   login,
   runAnalyticsQuery,
+  runDetailQuery,
 } from "./api";
 import { ChartView } from "./ChartView";
 import { Alert } from "./components/ui/alert";
@@ -25,7 +28,7 @@ import { Label } from "./components/ui/label";
 import { Select } from "./components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { DataTable } from "./DataTable";
-import { REPORT_PRESETS } from "./presets";
+import { DETAIL_PRESETS, SUMMARY_PRESETS } from "./presets";
 import type {
   Aggregation,
   AnalyticsField,
@@ -33,9 +36,14 @@ import type {
   AnalyticsQueryResponse,
   ChartType,
   CurrentUser,
+  DetailPreset,
+  DetailQueryRequest,
+  FilterDraft,
   FilterOperator,
+  MetricRequest,
   RatingRow,
   ReportPreset,
+  SortDirection,
 } from "./types";
 
 function App() {
@@ -44,17 +52,41 @@ function App() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [fields, setFields] = useState<AnalyticsField[]>([]);
-  const [metricField, setMetricField] = useState("student_count");
-  const [aggregation, setAggregation] = useState<Aggregation>("count");
-  const [dimension, setDimension] = useState("military_specialty");
-  const [filterField, setFilterField] = useState("status");
-  const [filterOperator, setFilterOperator] = useState<FilterOperator>("eq");
-  const [filterValue, setFilterValue] = useState("ENROLLED");
+  const [summaryMetrics, setSummaryMetrics] = useState<MetricRequest[]>([
+    { field: "student_count", aggregation: "count" },
+  ]);
+  const [summaryDimensions, setSummaryDimensions] = useState<string[]>([
+    "military_specialty",
+  ]);
+  const [summaryFilters, setSummaryFilters] = useState<FilterDraft[]>([
+    {
+      id: createDraftId(),
+      field: "status",
+      operator: "eq",
+      value: "ENROLLED",
+    },
+  ]);
   const [result, setResult] = useState<AnalyticsQueryResponse | null>(null);
   const [lastQuery, setLastQuery] = useState<AnalyticsQueryRequest | null>(null);
+  const [lastDetailQuery, setLastDetailQuery] = useState<DetailQueryRequest | null>(null);
+  const [resultMode, setResultMode] = useState<"summary" | "detail">("summary");
   const [ratingRows, setRatingRows] = useState<RatingRow[]>([]);
   const [chartType, setChartType] = useState<ChartType>("bar");
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [activeDetailPresetId, setActiveDetailPresetId] = useState<string | null>(null);
+  const [detailColumns, setDetailColumns] = useState<string[]>([
+    "full_name",
+    "platoon",
+    "military_commissariat",
+    "military_specialty",
+    "final_result",
+  ]);
+  const [detailFilters, setDetailFilters] = useState<FilterDraft[]>([
+    { id: createDraftId(), field: "platoon", operator: "eq", value: "" },
+  ]);
+  const [detailSortField, setDetailSortField] = useState("final_result");
+  const [detailSortDirection, setDetailSortDirection] = useState<SortDirection>("desc");
+  const [fieldValues, setFieldValues] = useState<Record<string, Array<string | number>>>({});
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -70,19 +102,16 @@ function App() {
     () => fields.filter((field) => field.filterable),
     [fields],
   );
+  const displayFields = useMemo(
+    () => fields.filter((field) => field.displayable),
+    [fields],
+  );
 
-  const selectedMetric = metricFields.find((field) => field.id === metricField);
-  const selectedFilter = filterFields.find((field) => field.id === filterField);
-  const availableAggregations = selectedMetric?.aggregations ?? [];
-  const availableFilterOperators = getOperatorsForField(selectedFilter);
   const queryDescription = buildQueryDescription({
-    aggregation,
-    dimension,
+    dimensions: summaryDimensions,
     fields,
-    filterField,
-    filterOperator,
-    filterValue,
-    metricField,
+    filters: summaryFilters,
+    metrics: summaryMetrics,
   });
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
@@ -110,17 +139,48 @@ function App() {
         analyticsFields.find((field) => field.filterable);
 
       if (firstMetric) {
-        setMetricField(firstMetric.id);
-        setAggregation(firstMetric.aggregations[0]);
+        setSummaryMetrics([
+          { field: firstMetric.id, aggregation: firstMetric.aggregations[0] },
+        ]);
       }
       if (firstDimension) {
-        setDimension(firstDimension.id);
+        setSummaryDimensions([firstDimension.id]);
       }
       if (firstFilter) {
-        setFilterField(firstFilter.id);
-        setFilterOperator(getOperatorsForField(firstFilter)[0]);
-        setFilterValue(firstFilter.id === "status" ? "ENROLLED" : "");
+        setSummaryFilters([
+          {
+            id: createDraftId(),
+            field: firstFilter.id,
+            operator: getOperatorsForField(firstFilter)[0],
+            value: firstFilter.id === "status" ? "ENROLLED" : "",
+          },
+        ]);
       }
+
+      const availableDisplayIds = analyticsFields
+        .filter((field) => field.displayable)
+        .map((field) => field.id);
+      const defaultDetailColumns = [
+        "full_name",
+        "platoon",
+        "military_commissariat",
+        "military_specialty",
+        "final_result",
+      ].filter((fieldId) => availableDisplayIds.includes(fieldId));
+      setDetailColumns(defaultDetailColumns.length ? defaultDetailColumns : availableDisplayIds.slice(0, 5));
+      setDetailFilters([
+        {
+          id: createDraftId(),
+          field: availableDisplayIds.includes("platoon") ? "platoon" : firstFilter?.id ?? "",
+          operator: "eq",
+          value: "",
+        },
+      ]);
+      setDetailSortField(
+        availableDisplayIds.includes("final_result")
+          ? "final_result"
+          : defaultDetailColumns[0] ?? availableDisplayIds[0] ?? "",
+      );
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Login failed");
     } finally {
@@ -141,6 +201,8 @@ function App() {
       const queryResult = await runAnalyticsQuery(token, payload);
       setResult(queryResult);
       setLastQuery(payload);
+      setLastDetailQuery(null);
+      setResultMode("summary");
       setChartType(nextChartType);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Query failed");
@@ -157,8 +219,44 @@ function App() {
 
   async function handlePresetClick(preset: ReportPreset) {
     setActivePresetId(preset.id);
+    setActiveDetailPresetId(null);
     applyQueryToBuilder(preset.query);
     await runQuery(preset.query, preset.chartType);
+  }
+
+  async function handleDetailQuery(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setActiveDetailPresetId(null);
+    await runDetail(buildDetailQuery());
+  }
+
+  async function handleDetailPresetClick(preset: DetailPreset) {
+    setActiveDetailPresetId(preset.id);
+    setActivePresetId(null);
+    applyDetailQueryToBuilder(preset.query);
+    await runDetail(preset.query);
+  }
+
+  async function runDetail(payload: DetailQueryRequest) {
+    if (!token) {
+      setError("Login is required");
+      return;
+    }
+
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const queryResult = await runDetailQuery(token, payload);
+      setResult(queryResult);
+      setLastDetailQuery(payload);
+      setLastQuery(null);
+      setResultMode("detail");
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Detail query failed");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   async function handleRatingLoad() {
@@ -179,12 +277,21 @@ function App() {
   }
 
   async function handleReportExport() {
-    if (!token || !lastQuery) {
+    if (!token) {
       setError("Сначала построй отчет");
       return;
     }
-    const blob = await exportAnalyticsQuery(token, lastQuery);
-    downloadBlob(blob, "analytics-report.xlsx");
+    if (resultMode === "detail" && lastDetailQuery) {
+      const blob = await exportDetailQuery(token, lastDetailQuery);
+      downloadBlob(blob, "detail-report.xlsx");
+      return;
+    }
+    if (lastQuery) {
+      const blob = await exportAnalyticsQuery(token, lastQuery);
+      downloadBlob(blob, "summary-report.xlsx");
+      return;
+    }
+    setError("Сначала построй отчет");
   }
 
   async function handleRatingExport() {
@@ -197,58 +304,219 @@ function App() {
   }
 
   function buildBuilderQuery(): AnalyticsQueryRequest {
-    const metricKey =
-      aggregation === "count" ? metricField : `${aggregation}_${metricField}`;
+    const firstMetric = summaryMetrics[0];
+    const metricKey = firstMetric
+      ? getMetricKey(firstMetric)
+      : summaryDimensions[0] ?? "";
     return {
-      metrics: [{ field: metricField, aggregation }],
-      dimensions: dimension ? [dimension] : [],
-      filters: filterValue.trim()
-        ? [
-            {
-              field: filterField,
-              operator: filterOperator,
-              value: normalizeFilterValue(filterValue, selectedFilter),
-            },
-          ]
-        : [],
-      sort: [{ field: metricKey, direction: "desc" }],
+      metrics: summaryMetrics,
+      dimensions: summaryDimensions,
+      filters: buildFilterRequests(summaryFilters, filterFields),
+      sort: metricKey ? [{ field: metricKey, direction: "desc" }] : [],
       limit: 100,
     };
   }
 
+  function buildDetailQuery(): DetailQueryRequest {
+    return {
+      columns: detailColumns,
+      filters: buildFilterRequests(detailFilters, filterFields),
+      sort: detailSortField
+        ? [{ field: detailSortField, direction: detailSortDirection }]
+        : [],
+      limit: 100,
+    };
+  }
+
+  function applyDetailQueryToBuilder(query: DetailQueryRequest) {
+    setDetailColumns(query.columns);
+    setDetailFilters(filtersToDrafts(query.filters, filterFields));
+    const sort = query.sort[0];
+    if (sort) {
+      setDetailSortField(sort.field);
+      setDetailSortDirection(sort.direction);
+    }
+  }
+
   function applyQueryToBuilder(query: AnalyticsQueryRequest) {
-    const metric = query.metrics[0];
-    if (metric) {
-      setMetricField(metric.field);
-      setAggregation(metric.aggregation);
+    setSummaryMetrics(query.metrics);
+    setSummaryDimensions(query.dimensions);
+    setSummaryFilters(filtersToDrafts(query.filters, filterFields));
+  }
+
+  function updateSummaryMetric(index: number, nextMetric: MetricRequest) {
+    setSummaryMetrics((currentMetrics) =>
+      currentMetrics.map((metric, currentIndex) =>
+        currentIndex === index ? nextMetric : metric,
+      ),
+    );
+  }
+
+  function addSummaryMetric() {
+    const nextField = metricFields[0];
+    if (!nextField || summaryMetrics.length >= 3) {
+      return;
     }
-    setDimension(query.dimensions[0] ?? "");
+    setSummaryMetrics((currentMetrics) => [
+      ...currentMetrics,
+      { field: nextField.id, aggregation: nextField.aggregations[0] },
+    ]);
+  }
 
-    const filter = query.filters[0];
-    if (filter) {
-      setFilterField(filter.field);
-      setFilterOperator(filter.operator);
-      setFilterValue(String(filter.value ?? ""));
-    } else {
-      setFilterValue("");
+  function removeSummaryMetric(index: number) {
+    setSummaryMetrics((currentMetrics) =>
+      currentMetrics.filter((_, currentIndex) => currentIndex !== index),
+    );
+  }
+
+  function updateSummaryDimension(index: number, fieldId: string) {
+    setSummaryDimensions((currentDimensions) =>
+      currentDimensions.map((dimensionItem, currentIndex) =>
+        currentIndex === index ? fieldId : dimensionItem,
+      ),
+    );
+  }
+
+  function addSummaryDimension() {
+    const nextDimension = dimensionFields.find(
+      (field) => !summaryDimensions.includes(field.id),
+    );
+    if (!nextDimension || summaryDimensions.length >= 3) {
+      return;
+    }
+    setSummaryDimensions((currentDimensions) => [
+      ...currentDimensions,
+      nextDimension.id,
+    ]);
+  }
+
+  function removeSummaryDimension(index: number) {
+    setSummaryDimensions((currentDimensions) =>
+      currentDimensions.filter((_, currentIndex) => currentIndex !== index),
+    );
+  }
+
+  function updateSummaryFilter(nextFilter: FilterDraft) {
+    setSummaryFilters((currentFilters) =>
+      currentFilters.map((filter) =>
+        filter.id === nextFilter.id ? nextFilter : filter,
+      ),
+    );
+  }
+
+  function updateDetailFilter(nextFilter: FilterDraft) {
+    setDetailFilters((currentFilters) =>
+      currentFilters.map((filter) =>
+        filter.id === nextFilter.id ? nextFilter : filter,
+      ),
+    );
+  }
+
+  function addSummaryFilter() {
+    const firstFilter = filterFields[0];
+    if (!firstFilter) {
+      return;
+    }
+    setSummaryFilters((currentFilters) => [
+      ...currentFilters,
+      {
+        id: createDraftId(),
+        field: firstFilter.id,
+        operator: getOperatorsForField(firstFilter)[0],
+        value: "",
+      },
+    ]);
+  }
+
+  function addDetailFilter() {
+    const firstFilter = filterFields[0];
+    if (!firstFilter) {
+      return;
+    }
+    setDetailFilters((currentFilters) => [
+      ...currentFilters,
+      {
+        id: createDraftId(),
+        field: firstFilter.id,
+        operator: getOperatorsForField(firstFilter)[0],
+        value: "",
+      },
+    ]);
+  }
+
+  function removeSummaryFilter(filterId: string) {
+    setSummaryFilters((currentFilters) =>
+      currentFilters.filter((filter) => filter.id !== filterId),
+    );
+  }
+
+  function removeDetailFilter(filterId: string) {
+    setDetailFilters((currentFilters) =>
+      currentFilters.filter((filter) => filter.id !== filterId),
+    );
+  }
+
+  async function ensureFieldValues(fieldId: string) {
+    if (!token || !fieldId || fieldValues[fieldId]) {
+      return;
+    }
+    try {
+      const response = await getFieldValues(token, fieldId);
+      setFieldValues((currentValues) => ({
+        ...currentValues,
+        [fieldId]: response.values,
+      }));
+    } catch {
+      // Value hints are optional; the query builder still works with manual input.
     }
   }
 
-  function handleMetricChange(nextMetricField: string) {
-    setMetricField(nextMetricField);
-    const nextMetric = metricFields.find((field) => field.id === nextMetricField);
-    setAggregation(nextMetric?.aggregations[0] ?? "count");
+  async function handleSummaryDrillDown(row: Record<string, string | number | null>) {
+    if (!lastQuery) {
+      return;
+    }
+
+    const drillFilters = [
+      ...lastQuery.filters,
+      ...lastQuery.dimensions
+        .filter((dimensionItem) => row[dimensionItem] !== null && row[dimensionItem] !== undefined)
+        .map((dimensionItem) => ({
+          field: dimensionItem,
+          operator: "eq" as FilterOperator,
+          value: row[dimensionItem],
+        })),
+    ];
+    const drillColumns = uniqueStrings(
+      [
+        "full_name",
+        ...lastQuery.dimensions,
+        "study_group",
+        "platoon",
+        "military_commissariat",
+        "military_specialty",
+        "final_result",
+      ].filter((fieldId) => displayFields.some((field) => field.id === fieldId)),
+    );
+    const detailQuery: DetailQueryRequest = {
+      columns: drillColumns,
+      filters: drillFilters,
+      sort: displayFields.some((field) => field.id === "final_result")
+        ? [{ field: "final_result", direction: "desc" }]
+        : [],
+      limit: 100,
+    };
+
+    applyDetailQueryToBuilder(detailQuery);
+    await runDetail(detailQuery);
   }
 
-  function handleFilterFieldChange(nextFilterField: string) {
-    const nextFilter = filterFields.find((field) => field.id === nextFilterField);
-    setFilterField(nextFilterField);
-    setFilterOperator(getOperatorsForField(nextFilter)[0]);
-    setFilterValue(nextFilterField === "status" ? "ENROLLED" : "");
-  }
-
-  function resetFilter() {
-    setFilterValue("");
+  function toggleDetailColumn(fieldId: string) {
+    setDetailColumns((currentColumns) => {
+      if (currentColumns.includes(fieldId)) {
+        return currentColumns.filter((column) => column !== fieldId);
+      }
+      return [...currentColumns, fieldId];
+    });
   }
 
   return (
@@ -310,13 +578,20 @@ function App() {
         <Tabs defaultValue="presets">
           <TabsList>
             <TabsTrigger value="presets">Готовые отчеты</TabsTrigger>
-            <TabsTrigger value="builder">Конструктор</TabsTrigger>
+            <TabsTrigger value="summary">Сводный отчет</TabsTrigger>
+            <TabsTrigger value="detail">Детальная выборка</TabsTrigger>
             <TabsTrigger value="rating">Рейтинг</TabsTrigger>
           </TabsList>
 
           <TabsContent value="presets">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold">Сводные отчеты</h2>
+              <p className="text-sm text-slate-500">
+                Для графиков, распределений и агрегированных таблиц.
+              </p>
+            </div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {REPORT_PRESETS.map((preset) => (
+              {SUMMARY_PRESETS.map((preset) => (
                 <Card
                   className={
                     activePresetId === preset.id
@@ -342,59 +617,68 @@ function App() {
                 </Card>
               ))}
             </div>
+            <div className="mb-4 mt-8">
+              <h2 className="text-xl font-semibold">Детальные выборки</h2>
+              <p className="text-sm text-slate-500">
+                Для списков людей и полезного XLSX-экспорта.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {DETAIL_PRESETS.map((preset) => (
+                <Card
+                  className={
+                    activeDetailPresetId === preset.id
+                      ? "border-blue-400 ring-2 ring-blue-100"
+                      : ""
+                  }
+                  key={preset.id}
+                >
+                  <CardHeader>
+                    <CardTitle>{preset.title}</CardTitle>
+                    <CardDescription>{preset.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex items-center justify-between gap-3">
+                    <Badge>detail</Badge>
+                    <Button
+                      disabled={isLoading}
+                      onClick={() => void handleDetailPresetClick(preset)}
+                      type="button"
+                    >
+                      Открыть список
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </TabsContent>
 
-          <TabsContent value="builder">
+          <TabsContent value="summary">
             <Card>
               <CardHeader>
-                <CardTitle>Конструктор отчета</CardTitle>
+                <CardTitle>Сводный отчет</CardTitle>
                 <CardDescription>{queryDescription}</CardDescription>
               </CardHeader>
               <CardContent>
-                <form className="grid gap-4 lg:grid-cols-4" onSubmit={handleQuery}>
-                  <Field label="Метрика">
-                    <Select
-                      value={metricField}
-                      onChange={(event) => handleMetricChange(event.target.value)}
-                    >
-                      {metricFields.map((field) => (
-                        <option key={field.id} value={field.id}>
-                          {field.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
+                <form className="grid gap-5" onSubmit={handleQuery}>
+                  <MetricBuilder
+                    fields={metricFields}
+                    metrics={summaryMetrics}
+                    onAdd={addSummaryMetric}
+                    onChange={updateSummaryMetric}
+                    onRemove={removeSummaryMetric}
+                  />
 
-                  <Field label="Агрегация">
-                    <Select
-                      value={aggregation}
-                      onChange={(event) =>
-                        setAggregation(event.target.value as Aggregation)
-                      }
-                    >
-                      {availableAggregations.map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-
-                  <Field label="Группировка">
-                    <Select
-                      value={dimension}
-                      onChange={(event) => setDimension(event.target.value)}
-                    >
-                      {dimensionFields.map((field) => (
-                        <option key={field.id} value={field.id}>
-                          {field.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
+                  <DimensionBuilder
+                    dimensions={summaryDimensions}
+                    fields={dimensionFields}
+                    onAdd={addSummaryDimension}
+                    onChange={updateSummaryDimension}
+                    onRemove={removeSummaryDimension}
+                  />
 
                   <Field label="Тип графика">
                     <Select
+                      className="max-w-xs"
                       value={chartType}
                       onChange={(event) => setChartType(event.target.value as ChartType)}
                     >
@@ -404,48 +688,109 @@ function App() {
                     </Select>
                   </Field>
 
-                  <Field label="Фильтр">
-                    <Select
-                      value={filterField}
-                      onChange={(event) => handleFilterFieldChange(event.target.value)}
-                    >
-                      {filterFields.map((field) => (
-                        <option key={field.id} value={field.id}>
-                          {field.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
+                  <FilterBuilder
+                    fieldValues={fieldValues}
+                    fields={filterFields}
+                    filters={summaryFilters}
+                    onAdd={addSummaryFilter}
+                    onChange={updateSummaryFilter}
+                    onLoadValues={(fieldId) => void ensureFieldValues(fieldId)}
+                    onRemove={removeSummaryFilter}
+                  />
 
-                  <Field label="Оператор">
-                    <Select
-                      value={filterOperator}
-                      onChange={(event) =>
-                        setFilterOperator(event.target.value as FilterOperator)
-                      }
-                    >
-                      {availableFilterOperators.map((operator) => (
-                        <option key={operator} value={operator}>
-                          {operator}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-
-                  <Field label="Значение">
-                    <Input
-                      placeholder="Пусто = без фильтра"
-                      value={filterValue}
-                      onChange={(event) => setFilterValue(event.target.value)}
-                    />
-                  </Field>
-
-                  <div className="flex items-end gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button disabled={isLoading} type="submit">
                       Построить
                     </Button>
-                    <Button onClick={resetFilter} type="button" variant="outline">
-                      Сбросить
+                    <Button
+                      onClick={() => setSummaryFilters([])}
+                      type="button"
+                      variant="outline"
+                    >
+                      Сбросить фильтры
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="detail">
+            <Card>
+              <CardHeader>
+                <CardTitle>Детальная выборка</CardTitle>
+                <CardDescription>
+                  Выбери колонки, фильтр и сортировку, чтобы получить список людей для
+                  просмотра или XLSX-экспорта.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form className="grid gap-5" onSubmit={handleDetailQuery}>
+                  <Field label="Колонки">
+                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                      {displayFields.map((field) => (
+                        <label
+                          className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          key={field.id}
+                        >
+                          <input
+                            checked={detailColumns.includes(field.id)}
+                            onChange={() => toggleDetailColumn(field.id)}
+                            type="checkbox"
+                          />
+                          {field.label}
+                        </label>
+                      ))}
+                    </div>
+                  </Field>
+
+                  <FilterBuilder
+                    fieldValues={fieldValues}
+                    fields={filterFields}
+                    filters={detailFilters}
+                    onAdd={addDetailFilter}
+                    onChange={updateDetailFilter}
+                    onLoadValues={(fieldId) => void ensureFieldValues(fieldId)}
+                    onRemove={removeDetailFilter}
+                  />
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <Field label="Сортировка">
+                      <Select
+                        value={detailSortField}
+                        onChange={(event) => setDetailSortField(event.target.value)}
+                      >
+                        {displayFields.map((field) => (
+                          <option key={field.id} value={field.id}>
+                            {field.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+
+                    <Field label="Направление">
+                      <Select
+                        value={detailSortDirection}
+                        onChange={(event) =>
+                          setDetailSortDirection(event.target.value as SortDirection)
+                        }
+                      >
+                        <option value="asc">asc</option>
+                        <option value="desc">desc</option>
+                      </Select>
+                    </Field>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button disabled={isLoading || !detailColumns.length} type="submit">
+                      Получить список
+                    </Button>
+                    <Button
+                      onClick={() => setDetailFilters([])}
+                      type="button"
+                      variant="outline"
+                    >
+                      Сбросить фильтры
                     </Button>
                   </div>
                 </form>
@@ -488,8 +833,14 @@ function App() {
       {result && (
         <ResultView
           chartType={chartType}
+          onDrillDown={
+            resultMode === "summary"
+              ? (row) => void handleSummaryDrillDown(row)
+              : undefined
+          }
           onExport={() => void handleReportExport()}
           result={result}
+          showChart={resultMode === "summary"}
         />
       )}
     </main>
@@ -498,20 +849,33 @@ function App() {
 
 function ResultView({
   chartType,
+  onDrillDown,
   onExport,
   result,
+  showChart,
 }: {
   chartType: ChartType;
+  onDrillDown?: (row: Record<string, string | number | null>) => void;
   onExport: () => void;
   result: AnalyticsQueryResponse;
+  showChart: boolean;
 }) {
   return (
-    <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+    <section
+      className={
+        showChart
+          ? "grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+          : "grid gap-6"
+      }
+    >
       <Card>
         <CardHeader>
           <CardTitle>Таблица</CardTitle>
           <CardDescription className="flex flex-wrap items-center justify-between gap-3">
-            <span>Строк: {result.rows.length}</span>
+            <span>
+              Строк: {result.rows.length}
+              {onDrillDown ? ", клик по строке откроет список людей" : ""}
+            </span>
             <Button
               disabled={!result.rows.length}
               onClick={onExport}
@@ -523,19 +887,21 @@ function ResultView({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <DataTable result={result} />
+          <DataTable onRowClick={onDrillDown} result={result} />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>График</CardTitle>
-          <CardDescription>Тип визуализации: {chartType}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ChartView chartType={chartType} result={result} />
-        </CardContent>
-      </Card>
+      {showChart && (
+        <Card>
+          <CardHeader>
+            <CardTitle>График</CardTitle>
+            <CardDescription>Тип визуализации: {chartType}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartView chartType={chartType} result={result} />
+          </CardContent>
+        </Card>
+      )}
     </section>
   );
 }
@@ -574,33 +940,326 @@ function Field({
   );
 }
 
-function buildQueryDescription({
-  aggregation,
-  dimension,
+function MetricBuilder({
   fields,
-  filterField,
-  filterOperator,
-  filterValue,
-  metricField,
+  metrics,
+  onAdd,
+  onChange,
+  onRemove,
 }: {
-  aggregation: Aggregation;
-  dimension: string;
   fields: AnalyticsField[];
-  filterField: string;
-  filterOperator: FilterOperator;
-  filterValue: string;
-  metricField: string;
+  metrics: MetricRequest[];
+  onAdd: () => void;
+  onChange: (index: number, metric: MetricRequest) => void;
+  onRemove: (index: number) => void;
 }) {
-  const metricLabel = fields.find((field) => field.id === metricField)?.label ?? metricField;
-  const dimensionLabel =
-    fields.find((field) => field.id === dimension)?.label ?? dimension;
-  const filterLabel =
-    fields.find((field) => field.id === filterField)?.label ?? filterField;
-  const filterPart = filterValue.trim()
-    ? `, фильтр: ${filterLabel} ${filterOperator} ${filterValue}`
-    : ", без фильтра";
+  return (
+    <Field label="Метрики">
+      <div className="grid gap-3">
+        {metrics.map((metric, index) => {
+          const selectedField = fields.find((field) => field.id === metric.field);
+          const aggregations = selectedField?.aggregations ?? [];
+          return (
+            <div
+              className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-[1fr_180px_auto]"
+              key={`${metric.field}-${metric.aggregation}-${index}`}
+            >
+              <Select
+                value={metric.field}
+                onChange={(event) => {
+                  const nextField = fields.find(
+                    (field) => field.id === event.target.value,
+                  );
+                  onChange(index, {
+                    field: event.target.value,
+                    aggregation: nextField?.aggregations[0] ?? "count",
+                  });
+                }}
+              >
+                {fields.map((field) => (
+                  <option key={field.id} value={field.id}>
+                    {field.label}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                value={metric.aggregation}
+                onChange={(event) =>
+                  onChange(index, {
+                    ...metric,
+                    aggregation: event.target.value as Aggregation,
+                  })
+                }
+              >
+                {aggregations.map((aggregationItem) => (
+                  <option key={aggregationItem} value={aggregationItem}>
+                    {aggregationItem}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                disabled={metrics.length <= 1}
+                onClick={() => onRemove(index)}
+                type="button"
+                variant="outline"
+              >
+                Удалить
+              </Button>
+            </div>
+          );
+        })}
+        <Button
+          className="w-fit"
+          disabled={metrics.length >= 3}
+          onClick={onAdd}
+          type="button"
+          variant="outline"
+        >
+          + Добавить метрику
+        </Button>
+      </div>
+    </Field>
+  );
+}
 
-  return `${aggregation}(${metricLabel}) по ${dimensionLabel}${filterPart}`;
+function DimensionBuilder({
+  dimensions,
+  fields,
+  onAdd,
+  onChange,
+  onRemove,
+}: {
+  dimensions: string[];
+  fields: AnalyticsField[];
+  onAdd: () => void;
+  onChange: (index: number, fieldId: string) => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <Field label="Группировки">
+      <div className="grid gap-3">
+        {dimensions.map((dimensionItem, index) => (
+          <div
+            className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-[1fr_auto]"
+            key={`${dimensionItem}-${index}`}
+          >
+            <Select
+              value={dimensionItem}
+              onChange={(event) => onChange(index, event.target.value)}
+            >
+              {fields.map((field) => (
+                <option key={field.id} value={field.id}>
+                  {field.label}
+                </option>
+              ))}
+            </Select>
+            <Button
+              disabled={dimensions.length <= 1}
+              onClick={() => onRemove(index)}
+              type="button"
+              variant="outline"
+            >
+              Удалить
+            </Button>
+          </div>
+        ))}
+        <Button
+          className="w-fit"
+          disabled={dimensions.length >= 3}
+          onClick={onAdd}
+          type="button"
+          variant="outline"
+        >
+          + Добавить группировку
+        </Button>
+      </div>
+    </Field>
+  );
+}
+
+function FilterBuilder({
+  fieldValues,
+  fields,
+  filters,
+  onAdd,
+  onChange,
+  onLoadValues,
+  onRemove,
+}: {
+  fieldValues: Record<string, Array<string | number>>;
+  fields: AnalyticsField[];
+  filters: FilterDraft[];
+  onAdd: () => void;
+  onChange: (filter: FilterDraft) => void;
+  onLoadValues: (fieldId: string) => void;
+  onRemove: (filterId: string) => void;
+}) {
+  return (
+    <Field label="Фильтры">
+      <div className="grid gap-3">
+        {filters.length === 0 && (
+          <p className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">
+            Фильтров нет. Все добавленные фильтры применяются через AND.
+          </p>
+        )}
+        {filters.map((filter) => {
+          const selectedField = fields.find((field) => field.id === filter.field);
+          const operators = getOperatorsForField(selectedField);
+          const values = fieldValues[filter.field] ?? [];
+          const listId = `values-${filter.id}`;
+          return (
+            <div
+              className="grid gap-3 rounded-2xl border border-slate-200 p-3 lg:grid-cols-[1fr_160px_1fr_auto]"
+              key={filter.id}
+            >
+              <Select
+                value={filter.field}
+                onChange={(event) => {
+                  const nextField = fields.find(
+                    (field) => field.id === event.target.value,
+                  );
+                  const nextFilter = {
+                    ...filter,
+                    field: event.target.value,
+                    operator: getOperatorsForField(nextField)[0],
+                    value: "",
+                  };
+                  onChange(nextFilter);
+                  onLoadValues(nextFilter.field);
+                }}
+              >
+                {fields.map((field) => (
+                  <option key={field.id} value={field.id}>
+                    {field.label}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                value={filter.operator}
+                onChange={(event) =>
+                  onChange({
+                    ...filter,
+                    operator: event.target.value as FilterOperator,
+                  })
+                }
+              >
+                {operators.map((operator) => (
+                  <option key={operator} value={operator}>
+                    {operator}
+                  </option>
+                ))}
+              </Select>
+              <div>
+                <Input
+                  list={listId}
+                  onFocus={() => onLoadValues(filter.field)}
+                  onChange={(event) =>
+                    onChange({ ...filter, value: event.target.value })
+                  }
+                  placeholder="Пусто = фильтр не применяется"
+                  value={filter.value}
+                />
+                <datalist id={listId}>
+                  {values.map((value) => (
+                    <option key={String(value)} value={String(value)} />
+                  ))}
+                </datalist>
+              </div>
+              <Button
+                onClick={() => onRemove(filter.id)}
+                type="button"
+                variant="outline"
+              >
+                Удалить
+              </Button>
+            </div>
+          );
+        })}
+        <Button className="w-fit" onClick={onAdd} type="button" variant="outline">
+          + Добавить фильтр
+        </Button>
+      </div>
+    </Field>
+  );
+}
+
+function buildQueryDescription({
+  dimensions,
+  fields,
+  filters,
+  metrics,
+}: {
+  dimensions: string[];
+  fields: AnalyticsField[];
+  filters: FilterDraft[];
+  metrics: MetricRequest[];
+}) {
+  const metricLabels = metrics.map((metric) => {
+    const fieldLabel = fields.find((field) => field.id === metric.field)?.label ?? metric.field;
+    return `${metric.aggregation}(${fieldLabel})`;
+  });
+  const dimensionLabels = dimensions.map(
+    (dimension) => fields.find((field) => field.id === dimension)?.label ?? dimension,
+  );
+  const activeFilters = filters.filter((filter) => filter.value.trim());
+  const filterPart = activeFilters.length
+    ? `, фильтров: ${activeFilters.length}`
+    : ", без фильтров";
+
+  return `${metricLabels.join(", ")} по ${dimensionLabels.join(" + ")}${filterPart}`;
+}
+
+function buildFilterRequests(filters: FilterDraft[], fields: AnalyticsField[]) {
+  return filters
+    .filter((filter) => filter.field && filter.value.trim())
+    .map((filter) => {
+      const field = fields.find((fieldItem) => fieldItem.id === filter.field);
+      return {
+        field: filter.field,
+        operator: filter.operator,
+        value:
+          filter.operator === "in"
+            ? filter.value
+                .split(",")
+                .map((value) => normalizeFilterValue(value.trim(), field))
+                .filter((value) => value !== "")
+            : normalizeFilterValue(filter.value, field),
+      };
+    });
+}
+
+function filtersToDrafts(
+  filters: Array<{ field: string; operator: FilterOperator; value: unknown }>,
+  fields: AnalyticsField[],
+): FilterDraft[] {
+  if (!filters.length) {
+    return [];
+  }
+  return filters.map((filter) => {
+    const field = fields.find((fieldItem) => fieldItem.id === filter.field);
+    return {
+      id: createDraftId(),
+      field: filter.field,
+      operator: filter.operator,
+      value: Array.isArray(filter.value)
+        ? filter.value.join(", ")
+        : String(filter.value ?? (field?.id === "status" ? "ENROLLED" : "")),
+    };
+  });
+}
+
+function getMetricKey(metric: MetricRequest) {
+  return metric.aggregation === "count"
+    ? metric.field
+    : `${metric.aggregation}_${metric.field}`;
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values));
+}
+
+function createDraftId() {
+  return crypto.randomUUID();
 }
 
 function ratingToTable(rows: RatingRow[]): AnalyticsQueryResponse {

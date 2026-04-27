@@ -1,6 +1,6 @@
-import type { ReportPreset } from "./types";
+import type { DetailPreset, ReportPreset } from "./types";
 
-export const REPORT_PRESETS: ReportPreset[] = [
+export const SUMMARY_PRESETS: ReportPreset[] = [
   {
     id: "military-specialty-distribution",
     title: "Распределение по ВУС",
@@ -9,6 +9,19 @@ export const REPORT_PRESETS: ReportPreset[] = [
     query: {
       metrics: [{ field: "student_count", aggregation: "count" }],
       dimensions: ["military_specialty"],
+      filters: [],
+      sort: [{ field: "student_count", direction: "desc" }],
+      limit: 100,
+    },
+  },
+  {
+    id: "commissariats-by-platoon",
+    title: "Военкоматы по взводам",
+    description: "Распределение личного состава по военным комиссариатам внутри взводов.",
+    chartType: "bar",
+    query: {
+      metrics: [{ field: "student_count", aggregation: "count" }],
+      dimensions: ["platoon", "military_commissariat"],
       filters: [],
       sort: [{ field: "student_count", direction: "desc" }],
       limit: 100,
@@ -76,6 +89,87 @@ export const REPORT_PRESETS: ReportPreset[] = [
       dimensions: ["fitness_category"],
       filters: [],
       sort: [{ field: "student_count", direction: "desc" }],
+      limit: 100,
+    },
+  },
+];
+
+export const DETAIL_PRESETS: DetailPreset[] = [
+  {
+    id: "people-by-platoon",
+    title: "Список людей по взводу",
+    description: "ФИО, взвод, военкомат, ВУС и итоговый балл для выбранного взвода.",
+    columns: [
+      "full_name",
+      "platoon",
+      "military_commissariat",
+      "military_specialty",
+      "final_result",
+    ],
+    query: {
+      columns: [
+        "full_name",
+        "platoon",
+        "military_commissariat",
+        "military_specialty",
+        "final_result",
+      ],
+      filters: [],
+      sort: [{ field: "final_result", direction: "desc" }],
+      limit: 100,
+    },
+  },
+  {
+    id: "people-by-commissariat",
+    title: "Список людей по военкомату",
+    description: "Детальная выгрузка людей с учебной группой, взводом и ВУС.",
+    columns: [
+      "full_name",
+      "study_group",
+      "platoon",
+      "military_commissariat",
+      "military_specialty",
+      "status",
+    ],
+    query: {
+      columns: [
+        "full_name",
+        "study_group",
+        "platoon",
+        "military_commissariat",
+        "military_specialty",
+        "status",
+      ],
+      filters: [],
+      sort: [{ field: "full_name", direction: "asc" }],
+      limit: 100,
+    },
+  },
+  {
+    id: "enrolled-by-specialty",
+    title: "Зачисленные по ВУС",
+    description: "Список зачисленных с ВУС, группой и итоговыми показателями.",
+    columns: [
+      "full_name",
+      "study_group",
+      "military_specialty",
+      "status",
+      "grade100",
+      "total_points",
+      "final_result",
+    ],
+    query: {
+      columns: [
+        "full_name",
+        "study_group",
+        "military_specialty",
+        "status",
+        "grade100",
+        "total_points",
+        "final_result",
+      ],
+      filters: [{ field: "status", operator: "eq", value: "ENROLLED" }],
+      sort: [{ field: "final_result", direction: "desc" }],
       limit: 100,
     },
   },

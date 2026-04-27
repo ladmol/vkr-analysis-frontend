@@ -14,9 +14,10 @@ import type { AnalyticsQueryResponse } from "./types";
 
 interface DataTableProps {
   result: AnalyticsQueryResponse;
+  onRowClick?: (row: Record<string, string | number | null>) => void;
 }
 
-export function DataTable({ result }: DataTableProps) {
+export function DataTable({ onRowClick, result }: DataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const columns = useMemo<ColumnDef<Record<string, string | number | null>>[]>(
     () =>
@@ -76,7 +77,15 @@ export function DataTable({ result }: DataTableProps) {
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => (
-              <tr className="hover:bg-slate-50" key={row.id}>
+              <tr
+                className={
+                  onRowClick
+                    ? "cursor-pointer hover:bg-blue-50"
+                    : "hover:bg-slate-50"
+                }
+                key={row.id}
+                onClick={() => onRowClick?.(row.original)}
+              >
                 {row.getVisibleCells().map((cell) => (
                   <td className="border-b border-slate-100 px-4 py-3" key={cell.id}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
