@@ -28,6 +28,7 @@ import { Label } from "./components/ui/label";
 import { Select } from "./components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { DataTable } from "./DataTable";
+import { FilterBuilder, getOperatorsForField } from "./FilterBuilder";
 import { DETAIL_PRESETS, SUMMARY_PRESETS } from "./presets";
 import type {
   Aggregation,
@@ -62,8 +63,9 @@ function App() {
     {
       id: createDraftId(),
       field: "status",
-      operator: "eq",
-      value: "ENROLLED",
+      operator: "in",
+      value: "",
+      values: ["ENROLLED"],
     },
   ]);
   const [result, setResult] = useState<AnalyticsQueryResponse | null>(null);
@@ -82,7 +84,13 @@ function App() {
     "final_result",
   ]);
   const [detailFilters, setDetailFilters] = useState<FilterDraft[]>([
-    { id: createDraftId(), field: "platoon", operator: "eq", value: "" },
+    {
+      id: createDraftId(),
+      field: "platoon",
+      operator: "in",
+      value: "",
+      values: [],
+    },
   ]);
   const [detailSortField, setDetailSortField] = useState("final_result");
   const [detailSortDirection, setDetailSortDirection] = useState<SortDirection>("desc");
@@ -152,7 +160,8 @@ function App() {
             id: createDraftId(),
             field: firstFilter.id,
             operator: getOperatorsForField(firstFilter)[0],
-            value: firstFilter.id === "status" ? "ENROLLED" : "",
+              value: "",
+              values: firstFilter.id === "status" ? ["ENROLLED"] : [],
           },
         ]);
       }
@@ -172,8 +181,9 @@ function App() {
         {
           id: createDraftId(),
           field: availableDisplayIds.includes("platoon") ? "platoon" : firstFilter?.id ?? "",
-          operator: "eq",
+          operator: "in",
           value: "",
+          values: [],
         },
       ]);
       setDetailSortField(
@@ -424,6 +434,7 @@ function App() {
         field: firstFilter.id,
         operator: getOperatorsForField(firstFilter)[0],
         value: "",
+        values: [],
       },
     ]);
   }
@@ -440,6 +451,7 @@ function App() {
         field: firstFilter.id,
         operator: getOperatorsForField(firstFilter)[0],
         value: "",
+        values: [],
       },
     ]);
   }
@@ -908,16 +920,6 @@ function ResultView({
 
 export default App;
 
-function getOperatorsForField(field?: AnalyticsField): FilterOperator[] {
-  if (!field) {
-    return ["eq"];
-  }
-  if (field.type === "string") {
-    return ["eq", "contains"];
-  }
-  return ["eq", "gte", "lte"];
-}
-
 function normalizeFilterValue(value: string, field?: AnalyticsField): string | number {
   if (field?.type === "number") {
     return Number(value);
@@ -1077,112 +1079,6 @@ function DimensionBuilder({
   );
 }
 
-function FilterBuilder({
-  fieldValues,
-  fields,
-  filters,
-  onAdd,
-  onChange,
-  onLoadValues,
-  onRemove,
-}: {
-  fieldValues: Record<string, Array<string | number>>;
-  fields: AnalyticsField[];
-  filters: FilterDraft[];
-  onAdd: () => void;
-  onChange: (filter: FilterDraft) => void;
-  onLoadValues: (fieldId: string) => void;
-  onRemove: (filterId: string) => void;
-}) {
-  return (
-    <Field label="Фильтры">
-      <div className="grid gap-3">
-        {filters.length === 0 && (
-          <p className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">
-            Фильтров нет. Все добавленные фильтры применяются через AND.
-          </p>
-        )}
-        {filters.map((filter) => {
-          const selectedField = fields.find((field) => field.id === filter.field);
-          const operators = getOperatorsForField(selectedField);
-          const values = fieldValues[filter.field] ?? [];
-          const listId = `values-${filter.id}`;
-          return (
-            <div
-              className="grid gap-3 rounded-2xl border border-slate-200 p-3 lg:grid-cols-[1fr_160px_1fr_auto]"
-              key={filter.id}
-            >
-              <Select
-                value={filter.field}
-                onChange={(event) => {
-                  const nextField = fields.find(
-                    (field) => field.id === event.target.value,
-                  );
-                  const nextFilter = {
-                    ...filter,
-                    field: event.target.value,
-                    operator: getOperatorsForField(nextField)[0],
-                    value: "",
-                  };
-                  onChange(nextFilter);
-                  onLoadValues(nextFilter.field);
-                }}
-              >
-                {fields.map((field) => (
-                  <option key={field.id} value={field.id}>
-                    {field.label}
-                  </option>
-                ))}
-              </Select>
-              <Select
-                value={filter.operator}
-                onChange={(event) =>
-                  onChange({
-                    ...filter,
-                    operator: event.target.value as FilterOperator,
-                  })
-                }
-              >
-                {operators.map((operator) => (
-                  <option key={operator} value={operator}>
-                    {operator}
-                  </option>
-                ))}
-              </Select>
-              <div>
-                <Input
-                  list={listId}
-                  onFocus={() => onLoadValues(filter.field)}
-                  onChange={(event) =>
-                    onChange({ ...filter, value: event.target.value })
-                  }
-                  placeholder="Пусто = фильтр не применяется"
-                  value={filter.value}
-                />
-                <datalist id={listId}>
-                  {values.map((value) => (
-                    <option key={String(value)} value={String(value)} />
-                  ))}
-                </datalist>
-              </div>
-              <Button
-                onClick={() => onRemove(filter.id)}
-                type="button"
-                variant="outline"
-              >
-                Удалить
-              </Button>
-            </div>
-          );
-        })}
-        <Button className="w-fit" onClick={onAdd} type="button" variant="outline">
-          + Добавить фильтр
-        </Button>
-      </div>
-    </Field>
-  );
-}
-
 function buildQueryDescription({
   dimensions,
   fields,
@@ -1201,7 +1097,7 @@ function buildQueryDescription({
   const dimensionLabels = dimensions.map(
     (dimension) => fields.find((field) => field.id === dimension)?.label ?? dimension,
   );
-  const activeFilters = filters.filter((filter) => filter.value.trim());
+  const activeFilters = filters.filter(hasFilterValue);
   const filterPart = activeFilters.length
     ? `, фильтров: ${activeFilters.length}`
     : ", без фильтров";
@@ -1211,18 +1107,21 @@ function buildQueryDescription({
 
 function buildFilterRequests(filters: FilterDraft[], fields: AnalyticsField[]) {
   return filters
-    .filter((filter) => filter.field && filter.value.trim())
+    .filter((filter) => filter.field && hasFilterValue(filter))
     .map((filter) => {
       const field = fields.find((fieldItem) => fieldItem.id === filter.field);
+      const values = filter.values.map((value) => normalizeFilterValue(value, field));
       return {
         field: filter.field,
         operator: filter.operator,
         value:
           filter.operator === "in"
-            ? filter.value
-                .split(",")
-                .map((value) => normalizeFilterValue(value.trim(), field))
-                .filter((value) => value !== "")
+            ? values.length > 0
+              ? values
+              : filter.value
+                  .split(",")
+                  .map((value) => normalizeFilterValue(value.trim(), field))
+                  .filter((value) => value !== "")
             : normalizeFilterValue(filter.value, field),
       };
     });
@@ -1237,15 +1136,21 @@ function filtersToDrafts(
   }
   return filters.map((filter) => {
     const field = fields.find((fieldItem) => fieldItem.id === filter.field);
+    const rawValues = Array.isArray(filter.value) ? filter.value : [];
     return {
       id: createDraftId(),
       field: filter.field,
       operator: filter.operator,
       value: Array.isArray(filter.value)
-        ? filter.value.join(", ")
+        ? ""
         : String(filter.value ?? (field?.id === "status" ? "ENROLLED" : "")),
+      values: rawValues.map((value) => String(value)),
     };
   });
+}
+
+function hasFilterValue(filter: FilterDraft) {
+  return filter.values.length > 0 || filter.value.trim().length > 0;
 }
 
 function getMetricKey(metric: MetricRequest) {

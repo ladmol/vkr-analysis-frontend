@@ -55,9 +55,10 @@ export function getAnalyticsFields(token: string): Promise<AnalyticsField[]> {
 export function getFieldValues(
   token: string,
   fieldId: string,
+  limit = 200,
 ): Promise<FieldValuesResponse> {
   return request<FieldValuesResponse>(
-    `/analytics/fields/${encodeURIComponent(fieldId)}/values`,
+    `/analytics/fields/${encodeURIComponent(fieldId)}/values?limit=${limit}`,
     {},
     token,
   );

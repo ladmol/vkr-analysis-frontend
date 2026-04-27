@@ -30,6 +30,7 @@ export interface FilterDraft {
   field: string;
   operator: FilterOperator;
   value: string;
+  values: string[];
 }
 
 export interface SortRequest {
