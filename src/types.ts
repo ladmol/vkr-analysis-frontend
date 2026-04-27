@@ -2,6 +2,7 @@ export type FieldType = "string" | "number" | "date";
 export type Aggregation = "count" | "avg" | "sum" | "min" | "max";
 export type FilterOperator = "eq" | "in" | "gte" | "lte" | "contains";
 export type SortDirection = "asc" | "desc";
+export type ChartType = "bar" | "line" | "pie";
 
 export interface AnalyticsField {
   id: string;
@@ -56,4 +57,24 @@ export interface CurrentUser {
   id: number;
   login: string;
   role: "admin" | "operator" | "observer";
+}
+
+export interface ReportPreset {
+  id: string;
+  title: string;
+  description: string;
+  chartType: ChartType;
+  query: AnalyticsQueryRequest;
+}
+
+export interface RatingRow {
+  full_name?: string;
+  study_group: string | null;
+  military_specialty: string | null;
+  status: string | null;
+  fitness_category: string | null;
+  psycho_category: string | null;
+  grade100: number | null;
+  total_points: number | null;
+  final_result: number | null;
 }
